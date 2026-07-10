@@ -22,6 +22,7 @@ class Webhook extends NotificationProvider {
             let config = {
                 headers: {},
             };
+            const webhookContentType = notification.webhookContentType || "json";
 
             if (httpMethod === "get") {
                 config.params = {
@@ -35,13 +36,15 @@ class Webhook extends NotificationProvider {
                 if (monitorJSON) {
                     config.params.monitor = JSON.stringify(monitorJSON);
                 }
-            } else if (notification.webhookContentType === "form-data") {
+            } else if (webhookContentType === "form-data") {
                 const formData = new FormData();
                 formData.append("data", JSON.stringify(data));
                 config.headers = formData.getHeaders();
                 data = formData;
-            } else if (notification.webhookContentType === "custom") {
+            } else if (webhookContentType === "custom") {
                 data = await this.renderTemplate(notification.webhookCustomBody, msg, monitorJSON, heartbeatJSON);
+            } else if (webhookContentType === "empty") {
+                data = null;
             }
 
             if (notification.webhookAdditionalHeaders) {

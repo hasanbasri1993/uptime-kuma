@@ -32,6 +32,7 @@
         >
             <option value="json">{{ $t("webhookBodyPresetOption", ["application/json"]) }}</option>
             <option value="form-data">{{ $t("webhookBodyPresetOption", ["multipart/form-data"]) }}</option>
+            <option value="empty">{{ $t("webhookBodyEmptyOption") }}</option>
             <option value="custom">{{ $t("webhookBodyCustomOption") }}</option>
         </select>
 
@@ -108,6 +109,9 @@ export default {
     mounted() {
         if (typeof this.$parent.notification.httpMethod === "undefined") {
             this.$parent.notification.httpMethod = "post";
+        }
+        if (typeof this.$parent.notification.webhookContentType === "undefined") {
+            this.$parent.notification.webhookContentType = "json";
         }
     },
 };
