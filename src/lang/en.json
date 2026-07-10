@@ -279,6 +279,7 @@
     "webhookAdditionalHeadersTitle": "Additional Headers",
     "webhookAdditionalHeadersDesc": "Sets additional headers sent with the webhook. Each header should be defined as a JSON key/value.",
     "webhookBodyPresetOption": "Preset - {0}",
+    "webhookBodyEmptyOption": "No Body (Empty)",
     "webhookBodyCustomOption": "Custom Body",
     "Webhook URL": "Webhook URL",
     "Application Token": "Application Token",
