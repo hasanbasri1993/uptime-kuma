@@ -1,15 +1,7 @@
-const ping = require("@louislam/ping");
+import { checkLogin as betterAuthCheckLogin } from "./better-auth";
+
 const { R } = require("redbean-node");
-const {
-    log,
-    genSecret,
-    badgeConstants,
-    PING_PACKET_SIZE_DEFAULT,
-    PING_GLOBAL_TIMEOUT_DEFAULT,
-    PING_COUNT_DEFAULT,
-    PING_PER_REQUEST_TIMEOUT_DEFAULT,
-} = require("../src/util");
-const passwordHash = require("./password-hash");
+const { log, badgeConstants } = require("../src/util");
 const iconv = require("iconv-lite");
 const chardet = require("chardet");
 const chroma = require("chroma-js");
@@ -33,33 +25,6 @@ dayjs.extend(require("dayjs/plugin/utc"));
 // eslint-disable-next-line no-unused-vars
 const { Kafka, SASLOptions } = require("kafkajs");
 const crypto = require("crypto");
-
-const isWindows = process.platform === /^win/.test(process.platform);
-/**
- * Init or reset JWT secret
- * @returns {Promise<Bean>} JWT secret
- */
-exports.initJWTSecret = async () => {
-    let jwtSecretBean = await R.findOne("setting", " `key` = ? ", ["jwtSecret"]);
-
-    if (!jwtSecretBean) {
-        jwtSecretBean = R.dispense("setting");
-        jwtSecretBean.key = "jwtSecret";
-    }
-
-    jwtSecretBean.value = await passwordHash.generate(genSecret());
-    await R.store(jwtSecretBean);
-    return jwtSecretBean;
-};
-
-/**
- * Decodes a jwt and returns the payload portion without verifying the jwt.
- * @param {string} jwt The input jwt as a string
- * @returns {object} Decoded jwt payload object
- */
-exports.decodeJwt = (jwt) => {
-    return JSON.parse(Buffer.from(jwt.split(".")[1], "base64").toString());
-};
 
 /**
  * Gets an Access Token from an oidc/oauth2 provider
@@ -99,102 +64,6 @@ exports.getOidcTokenClientCredentials = async (
         grantParams.audience = audience;
     }
     return await client.grant(grantParams);
-};
-
-/**
- * Ping the specified machine
- * @param {string} destAddr Hostname / IP address of machine to ping
- * @param {number} count Number of packets to send before stopping
- * @param {string} sourceAddr Source address for sending/receiving echo requests
- * @param {boolean} numeric If true, IP addresses will be output instead of symbolic hostnames
- * @param {number} size Size (in bytes) of echo request to send
- * @param {number} deadline Maximum time in seconds before ping stops, regardless of packets sent
- * @param {number} timeout Maximum time in seconds to wait for each response
- * @returns {Promise<number>} Time for ping in ms rounded to nearest integer
- */
-exports.ping = async (
-    destAddr,
-    count = PING_COUNT_DEFAULT,
-    sourceAddr = "",
-    numeric = true,
-    size = PING_PACKET_SIZE_DEFAULT,
-    deadline = PING_GLOBAL_TIMEOUT_DEFAULT,
-    timeout = PING_PER_REQUEST_TIMEOUT_DEFAULT
-) => {
-    try {
-        return await exports.pingAsync(destAddr, false, count, sourceAddr, numeric, size, deadline, timeout);
-    } catch (e) {
-        // If the host cannot be resolved, try again with ipv6
-        log.debug("ping", "IPv6 error message: " + e.message);
-
-        // As node-ping does not report a specific error for this, try again if it is an empty message with ipv6 no matter what.
-        if (!e.message) {
-            return await exports.pingAsync(destAddr, true, count, sourceAddr, numeric, size, deadline, timeout);
-        } else {
-            throw e;
-        }
-    }
-};
-
-/**
- * Ping the specified machine
- * @param {string} destAddr Hostname / IP address of machine to ping
- * @param {boolean} ipv6 Should IPv6 be used?
- * @param {number} count Number of packets to send before stopping
- * @param {string} sourceAddr Source address for sending/receiving echo requests
- * @param {boolean} numeric If true, IP addresses will be output instead of symbolic hostnames
- * @param {number} size Size (in bytes) of echo request to send
- * @param {number} deadline Maximum time in seconds before ping stops, regardless of packets sent
- * @param {number} timeout Maximum time in seconds to wait for each response
- * @returns {Promise<number>} Time for ping in ms rounded to nearest integer
- */
-exports.pingAsync = function (
-    destAddr,
-    ipv6 = false,
-    count = PING_COUNT_DEFAULT,
-    sourceAddr = "",
-    numeric = true,
-    size = PING_PACKET_SIZE_DEFAULT,
-    deadline = PING_GLOBAL_TIMEOUT_DEFAULT,
-    timeout = PING_PER_REQUEST_TIMEOUT_DEFAULT
-) {
-    try {
-        const url = new URL(`http://${destAddr}`);
-        destAddr = url.hostname;
-        if (destAddr.startsWith("[") && destAddr.endsWith("]")) {
-            destAddr = destAddr.slice(1, -1);
-        }
-    } catch (e) {
-        // ignore
-    }
-
-    return new Promise((resolve, reject) => {
-        ping.promise
-            .probe(destAddr, {
-                v6: ipv6,
-                min_reply: count,
-                sourceAddr: sourceAddr,
-                numeric: numeric,
-                packetSize: size,
-                deadline: deadline,
-                timeout: timeout,
-            })
-            .then((res) => {
-                // If ping failed, it will set field to unknown
-                if (res.alive) {
-                    resolve(res.time);
-                } else {
-                    if (isWindows) {
-                        reject(new Error(exports.convertToUTF8(res.output)));
-                    } else {
-                        reject(new Error(res.output));
-                    }
-                }
-            })
-            .catch((err) => {
-                reject(err);
-            });
-    });
 };
 
 /**
@@ -614,6 +483,7 @@ exports.getTotalClientInRoom = (io, roomName) => {
 };
 
 /**
+ * @deprecated Use allowDevOrigin
  * Allow CORS all origins if development
  * @param {object} res Response object from axios
  * @returns {void}
@@ -625,6 +495,7 @@ exports.allowDevAllOrigin = (res) => {
 };
 
 /**
+ * @deprecated Use allowOrigin
  * Allow CORS all origins
  * @param {object} res Response object from axios
  * @returns {void}
@@ -636,37 +507,40 @@ exports.allowAllOrigin = (res) => {
 };
 
 /**
+ * Allow CORS all origins if development
+ * @param {Request} req Express request object
+ * @param {Response} res Express response object
+ * @returns {void}
+ */
+exports.allowDevOrigin = (req, res) => {
+    if (process.env.NODE_ENV === "development") {
+        exports.allowOrigin(req, res);
+    }
+};
+
+/**
+ * Allow CORS all origins
+ * Since Allow-Credentials is set to true, the Access-Control-Allow-Origin cannot be *, so we will set it to the request origin.
+ * @param {Request} req Express request object
+ * @param {Response} res Response object
+ * @returns {void}
+ */
+exports.allowOrigin = (req, res) => {
+    res.header("Access-Control-Allow-Origin", req.get("origin"));
+    res.header("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
+    res.header("Access-Control-Allow-Credentials", "true");
+};
+
+/**
+ * @deprecated Use better-auth's checkLogin
  * Check if a user is logged in
  * @param {Socket} socket Socket instance
  * @returns {void}
  * @throws The user is not logged in
  */
 exports.checkLogin = (socket) => {
-    if (!socket.userID) {
-        throw new Error("You are not logged in.");
-    }
-};
-
-/**
- * For logged-in users, double-check the password
- * @param {Socket} socket Socket.io instance
- * @param {string} currentPassword Password to validate
- * @returns {Promise<Bean>} User
- * @throws The current password is not a string
- * @throws The provided password is not correct
- */
-exports.doubleCheckPassword = async (socket, currentPassword) => {
-    if (typeof currentPassword !== "string") {
-        throw new Error("Wrong data type?");
-    }
-
-    let user = await R.findOne("user", " id = ? AND active = 1 ", [socket.userID]);
-
-    if (!user || !passwordHash.verify(currentPassword, user.password)) {
-        throw new Error("Incorrect current password");
-    }
-
-    return user;
+    betterAuthCheckLogin(socket);
 };
 
 /**
